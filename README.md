@@ -3,12 +3,24 @@
 A small Mac app for saving YouTube videos and playlists to a folder on your computer.
 Paste links, pick a quality, press Download.
 
+**[Download for Mac](https://github.com/AnuBis7Star/video-downloader/releases/latest)**
+(Apple Silicon, macOS 12+, free and open source)
+
+![Pasting a playlist link, downloading three videos at 480p, and the files arriving in the folder](assets/demo.gif)
+
 The goals are simple: one screen that does one job, downloads that finish, and full speed
 every time. It's a thin, readable layer over [yt-dlp](https://github.com/yt-dlp/yt-dlp),
-the widely used open-source downloader, and it keeps yt-dlp up to date on its own so it
-keeps working when YouTube changes.
+the widely used open-source downloader.
 
-![Video Downloader](assets/screenshot.jpg)
+## Why this one
+
+- **One screen.** Paste, pick a quality, download. Nothing to configure.
+- **It keeps working.** YouTube changes often; the app keeps yt-dlp current by itself, and
+  every update is checksum-verified and test-loaded before it's used.
+- **Nothing hidden.** No accounts, no tracking, no analytics, and about 1,600 lines of code
+  you can read. Below is every service it talks to and why.
+- **Cancel means cancel.** Stopping a download removes everything it created; your folder is
+  left exactly as it was.
 
 ## What it does
 

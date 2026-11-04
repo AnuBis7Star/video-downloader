@@ -151,7 +151,8 @@ def _fetch_ffmpeg() -> None:
     checked against PyPI's SHA-256) into Application Support, once."""
     version = _shipped("imageio-ffmpeg")
     if os.environ.get("IMAGEIO_FFMPEG_EXE") or not version:
-        ffmpeg_ready.set()  # running from source: the virtualenv's copy is used
+        state["ffmpeg"] = "ready"  # running from source: the virtualenv's copy is used
+        ffmpeg_ready.set()
         return
     target = FFMPEG_HOME / version / "ffmpeg"
     try:
