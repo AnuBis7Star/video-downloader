@@ -3,13 +3,22 @@
 Personal YouTube downloader built on [yt-dlp](https://github.com/yt-dlp/yt-dlp).
 ffmpeg is bundled via `imageio-ffmpeg`; YouTube's JS challenges are solved with Deno + `yt-dlp-ejs`.
 
-## Mac app
-    ./make_app.sh        # builds ~/Applications/Video Downloader.app
+## Mac app (standalone)
+    ./build_app.sh             # dist/Video Downloader.app
+    ./build_app.sh --install   # ...and install into ~/Applications (shortcut in /Applications)
+    ./build_app.sh --zip       # ...and dist/Video-Downloader-mac.zip to send to someone
 
-Open it from Launchpad, Spotlight or `~/Applications`. It's the same page in its own window,
-with the server running inside the app. The app runs this project folder in place, so if you
-move the folder, run `./make_app.sh` again. Log: `~/Library/Logs/VideoDownloader.log`.
-Quitting stops any running download and removes its partial file; finished files stay.
+The app carries Python, yt-dlp, ffmpeg and Deno (the official standalone release, checked
+against its published checksum), so it runs on an Apple Silicon Mac with nothing else
+installed (about 220 MB, 113 MB zipped). It's the same page in its own window, with the
+server running inside the app. Quitting stops any running download and removes its partial
+file; finished files stay. Run `uv run desktop.py` to try changes without building.
+
+**Sharing:** send `dist/Video-Downloader-mac.zip`. It holds the app and `How to open.txt`
+(from `share/`). The app is signed ad-hoc, not with an Apple Developer ID, so the first time
+the recipient opens it macOS says it can't verify it; they allow it once in
+System Settings → Privacy & Security → Open Anyway. Removing that step needs a paid Apple
+Developer account for signing and notarization. Apple Silicon only (M1 or newer).
 
 ## Web UI
     uv run app.py        # → http://127.0.0.1:5050
@@ -32,16 +41,19 @@ Quitting stops any running download and removes its partial file; finished files
 URLs can be videos or playlists. Default output: `~/Downloads/video_downloader`.
 
 ## yt-dlp stays current on its own
-YouTube changes often and yt-dlp follows within days. The app (and `uv run app.py`) upgrades
-yt-dlp and its challenge solver at launch and every 6 hours, through uv, so `uv.lock` records
-the version in use (see `engine.py`). It only swaps packages while nothing is downloading or
-looking up a link, and each download and lookup runs in a fresh process, so a new version
-applies without a restart. The page shows the version in the top right.
+YouTube changes often and yt-dlp follows within days. At launch and every 6 hours the app
+(and `uv run app.py`) checks PyPI. A newer yt-dlp and the challenge solver it pins are
+downloaded as wheels, checked against PyPI's SHA-256, unpacked into
+`~/Library/Application Support/Video Downloader/yt-dlp/<version>`, test-loaded in a separate
+process, and only then made current (see `engine.py`). Each download and lookup runs in a
+fresh process that loads the current version first, so updates apply without a restart and
+never touch files in use. If the check fails (offline), it keeps the version it has. The
+page shows the version in the top right.
 
-To update by hand:
+A rebuild ships whatever `uv.lock` pins; to move that forward:
 
     uv lock --upgrade-package yt-dlp --upgrade-package yt-dlp-ejs && uv sync
 
 ## Icon
 `assets/icon.png` is drawn by `uv run --no-project --with pillow python assets/make_icon.py`;
-run `./make_app.sh` after changing it.
+run `./build_app.sh --install` after changing it.

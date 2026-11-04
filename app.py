@@ -18,6 +18,7 @@ import tempfile
 import threading
 import uuid
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 from typing import Callable
 
@@ -26,7 +27,7 @@ from flask import Flask, abort, jsonify, render_template, request
 import engine
 from downloader import QUALITIES, download, get_info
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder=str(engine.RESOURCES / "templates"))
 batches: dict[str, dict] = {}
 STAGING = Path(tempfile.gettempdir()) / "video_downloader"
 SETTINGS = Path.home() / ".video_downloader.json"
@@ -110,11 +111,10 @@ def _run_item(batch: dict, item: dict) -> None:
 
 
 def _run_batch(batch: dict) -> None:
-    with engine.using():  # no yt-dlp update while this batch runs
-        for item in batch["items"]:
-            if batch["status"] == "cancelled":
-                return
-            _run_item(batch, item)
+    for item in batch["items"]:
+        if batch["status"] == "cancelled":
+            return
+        _run_item(batch, item)
     with batch["lock"]:
         if batch["status"] != "cancelled":
             batch["status"] = "done"
@@ -177,9 +177,14 @@ def index():
 
 @app.post("/api/info")
 def info():
+    global _pool
+    url = request.json["url"]
     try:
-        with engine.using():
-            return jsonify(_lookups().submit(get_info, request.json["url"]).result(timeout=120))
+        try:
+            return jsonify(_lookups().submit(get_info, url).result(timeout=120))
+        except BrokenProcessPool:  # a helper died; start a fresh pool rather than staying broken
+            _pool = None
+            return jsonify(_lookups().submit(get_info, url).result(timeout=120))
     except Exception as e:
         return jsonify(error=str(e)), 400
 

@@ -10,3 +10,8 @@ dependencies = [
     "pywebview>=6.2.1",
     "yt-dlp[default]>=2026.10.26",
 ]
+
+[dependency-groups]
+build = [
+    "pyinstaller>=6.22.3",
+]

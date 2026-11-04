@@ -1,0 +1,35 @@
+Video Downloader
+================
+
+Downloads YouTube videos and playlists to a folder on your Mac. Paste links, pick a quality,
+press Download. It keeps its download engine (yt-dlp) up to date on its own.
+
+Needs: a Mac with Apple Silicon (M1 or newer), macOS 12 or later.
+
+
+Install
+-------
+1. Drag "Video Downloader.app" into your Applications folder.
+2. Open it once with these steps, because it isn't from the App Store or a registered
+   Apple developer, so macOS asks you to confirm the first time:
+
+   a. Double-click Video Downloader. macOS says it can't verify the app. Click "Done"
+      (or "OK"). Don't move it to the Bin.
+   b. Open System Settings > Privacy & Security, scroll down to the message about
+      "Video Downloader", and click "Open Anyway". Enter your password if asked.
+   c. Click "Open Anyway" once more in the dialog that appears.
+
+   After that it opens normally, like any other app.
+
+
+Using it
+--------
+- Paste one or more YouTube links (videos or playlists) into the big box.
+- Choose a quality: Best, 1080p, 720p, 480p, or Audio only (mp3).
+- Press Download. The first time, it asks which folder to save to. Tick "Always here"
+  to skip that question next time.
+- The x on a row skips that video. Cancel stops everything and deletes what that
+  download had saved so far.
+
+
+Please use it for videos you have the right to download.

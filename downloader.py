@@ -10,8 +10,12 @@ import argparse
 from pathlib import Path
 from typing import Callable
 
-import imageio_ffmpeg
-import yt_dlp
+import engine
+
+engine.activate()  # a newer downloaded yt-dlp, if there is one, before the import below
+
+import imageio_ffmpeg  # noqa: E402
+import yt_dlp  # noqa: E402
 
 DEFAULT_OUT = Path.home() / "Downloads" / "video_downloader"
 QUALITIES = ["best", "1080", "720", "480", "audio"]
