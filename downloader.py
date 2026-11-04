@@ -71,8 +71,8 @@ def get_info(url: str) -> dict:
 
     A watch link that also carries &list= is treated as the single video.
     """
-    opts = {"quiet": True, "noplaylist": True, "extract_flat": "in_playlist",
-            "ffmpeg_location": imageio_ffmpeg.get_ffmpeg_exe()}
+    # No ffmpeg needed just to look something up (the app may still be fetching it).
+    opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "extract_flat": "in_playlist"}
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
     if info.get("_type") == "playlist":

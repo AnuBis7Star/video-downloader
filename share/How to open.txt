@@ -4,7 +4,8 @@ Video Downloader
 Downloads YouTube videos and playlists to a folder on your Mac. Paste links, pick a quality,
 press Download. It keeps its download engine (yt-dlp) up to date on its own.
 
-Needs: a Mac with Apple Silicon (M1 or newer), macOS 12 or later.
+Needs: a Mac with Apple Silicon (M1 or newer), macOS 12 or later, and an internet
+connection the first time you open it (it fetches ffmpeg, about 22 MB, once).
 
 
 Install
@@ -33,3 +34,8 @@ Using it
 
 
 Please use it for videos you have the right to download.
+
+Video Downloader is free and open source (MIT license, see LICENSE.txt):
+https://github.com/AnuBis7Star/video-downloader
+The licenses of the components inside it are in the app, under
+Video Downloader.app/Contents/Resources/licenses (right-click the app > Show Package Contents).

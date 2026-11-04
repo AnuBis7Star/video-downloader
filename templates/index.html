@@ -531,7 +531,9 @@ async function loadEngine() {
   const e = await fetch('/api/engine').then(r => r.json()).catch(() => null);
   if (!e) return;
   const v = e.version ? `yt-dlp ${e.version}` : 'yt-dlp';
-  $('engine').textContent = e.status === 'updating' ? 'Updating yt-dlp…'
+  $('engine').textContent = e.ffmpeg === 'downloading' ? 'Getting ffmpeg, first launch only…'
+    : e.ffmpeg === 'error' ? "Couldn't get ffmpeg yet; it retries when you download"
+    : e.status === 'updating' ? 'Updating yt-dlp…'
     : e.status === 'error' ? `${v}, couldn't check for updates`
     : e.checked ? `${v}, up to date as of ${ago(e.checked)}` : v;
   $('engine').title = e.error || '';

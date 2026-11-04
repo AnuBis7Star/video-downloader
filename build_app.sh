@@ -1,6 +1,7 @@
 #!/bin/bash
-# Builds a standalone "Video Downloader.app" for Apple Silicon Macs: Python, yt-dlp, ffmpeg and
-# Deno are all inside, so it runs on a Mac with nothing else installed.
+# Builds a standalone "Video Downloader.app" for Apple Silicon Macs: Python, yt-dlp and Deno are
+# inside, with their license texts, so it runs on a Mac with nothing else installed. ffmpeg is
+# fetched by the app on first launch (its build is GPL, so it isn't shipped).
 #
 #   ./build_app.sh             build dist/Video Downloader.app
 #   ./build_app.sh --install   ...and install it into ~/Applications (shortcut in /Applications)
@@ -29,12 +30,15 @@ if ! build/deps/deno --version 2>/dev/null | grep -q "deno $DENO_VERSION"; then
   unzip -o -q build/deps/deno.zip -d build/deps && rm build/deps/deno.zip
 fi
 
-# Native (arm64) dependencies, and the exact yt-dlp and ffmpeg going into the app.
+# Native (arm64) dependencies. The app ships yt-dlp; ffmpeg's build is GPL, so the app doesn't
+# ship it but downloads this exact imageio-ffmpeg version from PyPI on first launch.
 arch -arm64 uv sync --inexact --group build -q
-FFMPEG=$(arch -arm64 uv run python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())")
-file "$FFMPEG" | grep -q arm64 || { echo "ffmpeg is not an Apple Silicon build: $FFMPEG"; exit 1; }
 YTDLP=$(arch -arm64 uv run python -c "import importlib.metadata as m; print(m.version('yt-dlp'))")
-echo "{\"yt-dlp\": \"$YTDLP\"}" > build/bundled_versions.json
+IMAGEIO_FFMPEG=$(arch -arm64 uv run python -c "import importlib.metadata as m; print(m.version('imageio-ffmpeg'))")
+echo "{\"yt-dlp\": \"$YTDLP\", \"imageio-ffmpeg\": \"$IMAGEIO_FFMPEG\"}" > build/bundled_versions.json
+
+# The license texts of everything inside the app.
+arch -arm64 uv run python collect_licenses.py "$DENO_VERSION"
 
 # Icon: every size macOS asks for, from assets/icon.png
 ICONSET=build/AppIcon.iconset
@@ -52,12 +56,15 @@ arch -arm64 uv run --group build pyinstaller --noconfirm --clean --windowed --lo
   --add-data "$ROOT/templates:templates" \
   --add-data "$ROOT/assets/icon.png:assets" \
   --add-data "$ROOT/build/bundled_versions.json:." \
+  --add-data "$ROOT/build/licenses:licenses" \
   --add-binary "$ROOT/build/deps/deno:bin" \
-  --add-binary "$FFMPEG:bin" \
   --collect-data yt_dlp_ejs \
   --hidden-import app --hidden-import engine --hidden-import downloader \
   --distpath "$ROOT/dist" --workpath "$ROOT/build/pyinstaller" --specpath "$ROOT/build" \
   desktop.py
+# PyInstaller's imageio_ffmpeg hook would carry the GPL ffmpeg binary along; take it out.
+find "$APP" -path "*imageio_ffmpeg/binaries/ffmpeg*" -exec rm -f {} +
+if find "$APP" -iname "ffmpeg*" -type f | grep -q .; then echo "An ffmpeg binary is still inside the app"; exit 1; fi
 plutil -replace CFBundleShortVersionString -string "1.0" "$APP/Contents/Info.plist"
 plutil -replace LSMinimumSystemVersion -string "12.0" "$APP/Contents/Info.plist"
 codesign --force --deep --sign - "$APP" 2>/dev/null   # ad-hoc signature, required on Apple Silicon
@@ -79,6 +86,7 @@ if [ -n "${ZIP:-}" ]; then
   rm -rf build/share && mkdir -p "$SHARE"
   ditto "$APP" "$SHARE/Video Downloader.app"
   cp share/How\ to\ open.txt "$SHARE/"
+  cp LICENSE "$SHARE/LICENSE.txt"
   rm -f dist/Video-Downloader-mac.zip
   (cd build/share && ditto -c -k --sequesterRsrc --keepParent "Video Downloader" "$ROOT/dist/Video-Downloader-mac.zip")
   echo "To share: dist/Video-Downloader-mac.zip ($(du -h dist/Video-Downloader-mac.zip | cut -f1))"

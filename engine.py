@@ -7,6 +7,8 @@ wheels (checked against PyPI's SHA-256), unpacked into its own folder under
 process, and only then marked current. `activate()` puts the current one first on sys.path;
 every download and lookup runs in a fresh process that calls it before importing yt-dlp, so a
 new version applies at once and a version folder never changes while something uses it.
+
+The packaged app also fetches ffmpeg on first launch instead of shipping it; see _fetch_ffmpeg.
 """
 
 import hashlib
@@ -27,10 +29,19 @@ from pathlib import Path
 
 HOME = Path.home() / "Library" / "Application Support" / "Video Downloader" / "yt-dlp"
 CURRENT = HOME / "current"   # the folder name of the version in use
+FFMPEG_HOME = HOME.parent / "ffmpeg"
 CHECK_EVERY = 6 * 3600
 RESOURCES = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 
-state = {"version": None, "checked": None, "status": "starting", "error": None}
+state = {"version": None, "checked": None, "status": "starting", "error": None, "ffmpeg": "starting"}
+ffmpeg_ready = threading.Event()
+_ffmpeg_lock = threading.Lock()
+
+
+def _shipped(name: str) -> str | None:
+    """A version recorded at build time (the packaged app only)."""
+    shipped = RESOURCES / "bundled_versions.json"
+    return json.loads(shipped.read_text()).get(name) if shipped.exists() else None
 
 
 def _v(version: str | None) -> tuple:
@@ -39,10 +50,7 @@ def _v(version: str | None) -> tuple:
 
 def bundled_version() -> str:
     """The yt-dlp that came with the app (or with the project's virtualenv)."""
-    shipped = RESOURCES / "bundled_versions.json"
-    if shipped.exists():
-        return json.loads(shipped.read_text())["yt-dlp"]
-    return metadata.version("yt-dlp")
+    return _shipped("yt-dlp") or metadata.version("yt-dlp")
 
 
 def _current_overlay() -> tuple[Path, str] | None:
@@ -137,6 +145,49 @@ def update() -> None:
         state.update(version=active_version(), checked=time.time())
 
 
+def _fetch_ffmpeg() -> None:
+    """The packaged app doesn't ship ffmpeg: the build it uses is GPL-licensed. On first launch it
+    downloads that build from PyPI (imageio-ffmpeg, pinned to the version the app was built with,
+    checked against PyPI's SHA-256) into Application Support, once."""
+    version = _shipped("imageio-ffmpeg")
+    if os.environ.get("IMAGEIO_FFMPEG_EXE") or not version:
+        ffmpeg_ready.set()  # running from source: the virtualenv's copy is used
+        return
+    target = FFMPEG_HOME / version / "ffmpeg"
+    try:
+        if not target.exists():
+            state["ffmpeg"] = "downloading"
+            info = json.loads(_get(f"https://pypi.org/pypi/imageio-ffmpeg/{version}/json"))
+            whl = next(u for u in info["urls"] if re.search(r"macosx_[\d_]+_arm64\.whl$", u["filename"]))
+            data = _get(whl["url"], timeout=600)
+            if hashlib.sha256(data).hexdigest() != whl["digests"]["sha256"]:
+                raise RuntimeError(f"{whl['filename']} failed its checksum")
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                member = next(n for n in z.namelist() if "binaries/ffmpeg-macos-aarch64" in n)
+                partial = target.with_name(".ffmpeg.partial")
+                partial.parent.mkdir(parents=True, exist_ok=True)
+                partial.write_bytes(z.read(member))
+            partial.chmod(0o755)
+            partial.rename(target)
+            for old in FFMPEG_HOME.iterdir():
+                if old.is_dir() and old.name != version:
+                    shutil.rmtree(old, ignore_errors=True)
+        os.environ["IMAGEIO_FFMPEG_EXE"] = str(target)  # downloads started from now on use it
+        state.update(ffmpeg="ready")
+        ffmpeg_ready.set()
+    except Exception as e:  # offline on first launch: try again when a download starts
+        state.update(ffmpeg="error", ffmpeg_error=str(e))
+
+
+def ffmpeg_available() -> bool:
+    """Called before each download: waits for the first-launch fetch, or retries a failed one."""
+    if not ffmpeg_ready.is_set():
+        with _ffmpeg_lock:
+            if not ffmpeg_ready.is_set():
+                _fetch_ffmpeg()
+    return ffmpeg_ready.is_set()
+
+
 def _tidy() -> None:
     """At launch, before anything runs: keep the current version and the one before it."""
     if not HOME.is_dir():
@@ -154,6 +205,7 @@ def start_background_updates() -> None:
     state["version"] = active_version()
 
     def loop():
+        ffmpeg_available()
         while True:
             update()
             time.sleep(CHECK_EVERY)

@@ -28,14 +28,14 @@ No accounts, no tracking, no analytics, no ads. Everything runs on your Mac. The
 | Where | Why |
 | --- | --- |
 | YouTube (`youtube.com`, `googlevideo.com`, `ytimg.com`) | The videos you ask for, and their thumbnails |
-| PyPI (`pypi.org`, `files.pythonhosted.org`) | Checking for a newer yt-dlp, at launch and every 6 hours |
+| PyPI (`pypi.org`, `files.pythonhosted.org`) | Checking for a newer yt-dlp at launch and every 6 hours, and fetching ffmpeg once on first launch |
 | Fontshare (`api.fontshare.com`, `cdn.fontshare.com`) | The typeface the window uses |
 
 Nothing about you or your downloads is sent anywhere else. Files stay on your computer:
 
 - your videos, in the folder you choose;
 - your two settings (last folder, "Always here"), in `~/.video_downloader.json`;
-- downloaded yt-dlp updates, in `~/Library/Application Support/Video Downloader/`.
+- ffmpeg and downloaded yt-dlp updates, in `~/Library/Application Support/Video Downloader/`.
 
 **How updates are checked.** A newer yt-dlp is downloaded from PyPI and checked against the
 SHA-256 checksum PyPI publishes for it. It is then loaded once in a separate process as a test,
@@ -43,17 +43,29 @@ and only used if that works. If anything fails (for example, you're offline), th
 version it has. The current version shows in the top right of the window. See
 [`engine.py`](engine.py).
 
-The whole app is about 1,400 lines of Python, HTML and shell in this repository, so you can
+The whole app is about 1,600 lines of Python, HTML and shell in this repository, so you can
 read exactly what it does.
 
 ## Install
 
 Requires an Apple Silicon Mac (M1 or newer) with macOS 12 or later.
 
-The app isn't signed with a paid Apple developer certificate, so the first time you open it
-macOS says it can't verify it. Allow it once under **System Settings → Privacy & Security →
-Open Anyway**; after that it opens normally. If you'd rather not trust a prebuilt app, build
-it yourself from this source, as below. It's the same thing.
+1. Download **Video-Downloader-mac.zip** from the
+   [latest release](https://github.com/AnuBis7Star/video-downloader/releases/latest) and open it.
+   The release notes list its SHA-256, so you can check the download with
+   `shasum -a 256 Video-Downloader-mac.zip`.
+2. Drag **Video Downloader** into Applications.
+3. The app isn't signed with a paid Apple developer certificate, so the first time you open it
+   macOS says it can't verify it. Allow it once under **System Settings → Privacy & Security →
+   Open Anyway**; after that it opens normally.
+
+On first launch it fetches ffmpeg (about 22 MB) from PyPI, once. ffmpeg's build is
+GPL-licensed, so it isn't shipped inside the app; it comes from the
+[imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg) package, pinned to the version
+the app was built with and checked against PyPI's SHA-256.
+
+If you'd rather not trust a prebuilt app, build it yourself from this source, as below.
+It's the same thing.
 
 ## Build it yourself
 
@@ -66,13 +78,14 @@ cd video-downloader
 ```
 
 This puts **Video Downloader** in `~/Applications`, with a shortcut in `/Applications`. The
-app carries everything it needs: Python, yt-dlp, ffmpeg (from
-[imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg)) and
-[Deno](https://deno.com) (the official release, checked against its published checksum),
-which yt-dlp uses to answer YouTube's playback challenge so downloads aren't slowed down.
+app carries Python, yt-dlp and [Deno](https://deno.com) (the official release, checked
+against its published checksum), which yt-dlp uses to answer YouTube's playback challenge so
+downloads aren't slowed down. ffmpeg arrives on first launch, as above. The license texts of
+everything inside are in `Video Downloader.app/Contents/Resources/licenses`, gathered by
+[`collect_licenses.py`](collect_licenses.py).
 
 `./build_app.sh --zip` also makes `dist/Video-Downloader-mac.zip`, with
-[`How to open.txt`](share/How%20to%20open.txt), for giving the app to someone.
+[`How to open.txt`](share/How%20to%20open.txt) and the license, for giving the app to someone.
 
 ### Other ways to run it
 
@@ -94,6 +107,7 @@ Running from source needs Deno on your PATH (`brew install deno`).
 | [`engine.py`](engine.py) | Keeps yt-dlp up to date |
 | [`desktop.py`](desktop.py) | Shows the page in a native Mac window |
 | [`build_app.sh`](build_app.sh) | Packages everything into a standalone `.app` |
+| [`collect_licenses.py`](collect_licenses.py) | Gathers the license texts of everything the app contains |
 
 Each video downloads in its own process inside a private temporary folder, so skip and cancel
 can stop it (with its ffmpeg) at once and delete every partial file. Finished videos are moved
@@ -108,4 +122,5 @@ applies to most videos.
 
 ## License
 
-[MIT](LICENSE). yt-dlp, ffmpeg, Deno and the other components keep their own licenses.
+[MIT](LICENSE). yt-dlp, Deno, Python and the other components inside the app keep their own
+licenses (MIT, BSD, Apache, PSF, Unlicense and similar); ffmpeg, fetched separately, is GPL.

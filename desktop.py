@@ -16,14 +16,11 @@ from pathlib import Path
 
 
 def _use_bundled_tools(resources: Path) -> None:
-    """The packaged app carries its own Deno (for YouTube's challenges) and ffmpeg."""
+    """The packaged app carries its own Deno, which yt-dlp uses for YouTube's challenges.
+    (ffmpeg is fetched on first launch; see engine._fetch_ffmpeg.)"""
     tools = resources / "bin"
-    if not tools.is_dir():
-        return  # running from the project: the virtualenv and Homebrew provide them
-    os.environ["PATH"] = f"{tools}{os.pathsep}{os.environ.get('PATH', '/usr/bin:/bin')}"
-    ffmpeg = next(tools.glob("ffmpeg*"), None)
-    if ffmpeg:
-        os.environ["IMAGEIO_FFMPEG_EXE"] = str(ffmpeg)
+    if tools.is_dir():  # running from the project, Homebrew's Deno is on PATH instead
+        os.environ["PATH"] = f"{tools}{os.pathsep}{os.environ.get('PATH', '/usr/bin:/bin')}"
 
 
 def _name_the_app(icon: Path) -> None:

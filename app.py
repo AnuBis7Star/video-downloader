@@ -79,6 +79,12 @@ def _deliver(src: Path, dest: Path) -> Path:
 
 
 def _run_item(batch: dict, item: dict) -> None:
+    if not engine.ffmpeg_available():  # the packaged app fetches it on first launch
+        with batch["lock"]:
+            if item["status"] == "pending":
+                item.update(status="error", error="Couldn't download ffmpeg, which is needed to save "
+                                                  "videos. Check your internet connection and try again.")
+        return
     item_dir = STAGING / batch["id"] / item["id"]
     q = mp.Queue()
     proc = mp.Process(target=_worker, args=(item["url"], batch["quality"], str(item_dir), q),
