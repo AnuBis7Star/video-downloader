@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Downloader</title>
+<link rel="preconnect" href="https://api.fontshare.com"><link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
+<link href="https://api.fontshare.com/v2/css?f[]=pilcrow-rounded@400,500,700&display=swap" rel="stylesheet">
+<style>
+  /* Mid-tone pastels, square corners throughout. Each band is one flat field of colour:
+     sage green for what you paste, grey-green for the queue, sky for what is already in the folder.
+     Progress is deep green on a pale green track; saved is a green pair, failed a rose pair. */
+  :root {
+    --ground:#e6eae2; --ink:#1b211c; --muted:#4c574e; --rule:#d2d9cd; --hover:#f3f7f1; --row-hover:#dce2d7;
+    --peach:#9fcd99; --peach-deep:#7db577; --band-muted:#2f3d30;   /* the paste band: sage green */
+    --sky:#a9c8e8; --sky-ink:#163b63; --sky-rule:#93b6db;
+    --butter:#cfe5ca; --marigold:#2e7d4f;                            /* progress track and fill */
+    --mint:#c4e4c4; --mint-ink:#17552d;
+    --rose:#f5c9d0; --rose-ink:#8d1a31;
+    --stone:#d3dacf;
+    --field:#fbfcfa;                                                 /* inputs on the bands */
+    --width:1120px;
+    color-scheme: light;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--ground); color:var(--ink); }
+  body { font:400 16px/24px "Pilcrow Rounded", ui-rounded, system-ui, sans-serif; -webkit-font-smoothing:antialiased;
+         min-height:100vh; display:flex; flex-direction:column; }
+  body > .folder { flex:1; }   /* the page ends in the sky field, never in blank white */
+  .num { font-variant-numeric:tabular-nums; }
+  [hidden] { display:none !important; }
+  button, input, textarea { font:inherit; color:inherit; }
+  :focus-visible { outline:2px solid var(--ink); outline-offset:2px; }
+  .wrap { width:min(var(--width), 100% - 64px); margin:0 auto; }
+
+  /* Green band: the links, the choices, the action */
+  /* The pattern: rows of zigzag lines whose points face down, like soft download arrows,
+     drawn tone-on-tone so text on the bands stays easy to read. */
+  .paste { padding:28px 0 32px; background:var(--peach) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='32'%3E%3Cpath d='M-24 22 L0 10 L24 22 L48 10 L72 22' fill='none' stroke='%238dbf87' stroke-width='1.4' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E"); }
+  .brand { display:flex; align-items:baseline; gap:16px; margin-bottom:40px; }
+  .brand b { font-weight:700; font-size:16px; }
+  .brand span { color:var(--band-muted); font-size:14px; }
+  .brand .engine { margin-left:auto; text-align:right; }
+  .label-row { display:flex; align-items:baseline; gap:16px; margin-bottom:12px; }
+  h1 { font-size:32px; line-height:36px; font-weight:700; letter-spacing:-0.02em; margin:0; }
+  .detect { margin-left:auto; color:var(--band-muted); font-size:14px; white-space:nowrap; }
+  .detect.err { color:var(--rose-ink); }
+  .spinner { display:inline-block; width:12px; height:12px; margin-right:8px; vertical-align:-1px;
+             border:2px solid var(--peach-deep); border-top-color:var(--ink); border-radius:50%;
+             animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  textarea { display:block; width:100%; min-height:176px; resize:vertical; padding:16px 18px;
+             background:var(--field); border:none; border-radius:0; font-size:17px; line-height:26px; }
+  textarea::placeholder { color:var(--muted); }
+  textarea:focus-visible { outline:2px solid var(--ink); outline-offset:0; }
+  textarea:disabled { color:var(--muted); background:var(--hover); }
+
+  .controls { display:flex; align-items:flex-end; gap:32px; margin-top:20px; flex-wrap:wrap; }
+  .field { flex:1 1 260px; min-width:0; max-width:100%; }
+  .field > span { display:block; font-size:14px; color:var(--band-muted); margin-bottom:6px; }
+  fieldset { border:none; margin:0; padding:0; min-width:0; }
+  legend { padding:0; font-size:14px; color:var(--band-muted); margin-bottom:6px; }
+  .choice { display:flex; }
+  .choice label { position:relative; height:40px; padding:0 14px; display:flex; align-items:center; cursor:pointer;
+                  background:var(--field); white-space:nowrap; transition:background .15s, color .15s; }
+  .choice label + label { margin-left:2px; }
+  .choice input { position:absolute; inset:0; opacity:0; margin:0; cursor:pointer; }
+  .choice label:hover { background:var(--hover); }
+  .choice label:has(input:checked) { background:var(--ink); color:var(--field); }
+  .choice label:has(input:focus-visible) { outline:2px solid var(--ink); outline-offset:2px; }
+  fieldset:disabled label { cursor:default; opacity:.6; }
+  .dest { display:flex; align-items:center; gap:14px; height:40px; min-width:0; }
+  .dest .path { font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .link { background:none; border:none; padding:0; cursor:pointer; text-decoration:underline; text-underline-offset:3px;
+          text-decoration-thickness:1px; white-space:nowrap; }
+  .link:disabled { color:var(--band-muted); cursor:default; }
+  .check { display:flex; align-items:center; gap:8px; cursor:pointer; white-space:nowrap; }
+  .check input { width:18px; height:18px; margin:0; accent-color:var(--ink); }
+  .go { margin-left:auto; display:flex; gap:2px; }
+  .btn { height:48px; padding:0 24px; border:none; border-radius:0; cursor:pointer; font-weight:500; white-space:nowrap;
+         transition:background .15s, transform .1s; }
+  .btn:active { transform:translateY(1px); }
+  .btn.primary { background:var(--ink); color:var(--field); }
+  .btn.primary:hover { background:#2f3a31; }
+  .btn.secondary { background:var(--field); color:var(--ink); }
+  .btn:disabled { background:var(--field); color:var(--muted); cursor:default; transform:none; }
+
+  /* Queue on the grey-green ground */
+  .queue { padding:40px 0 48px; }
+  .queue-head { display:flex; align-items:baseline; gap:16px; margin-bottom:12px; }
+  h2 { font-size:22px; line-height:28px; font-weight:700; margin:0; letter-spacing:-0.01em; }
+  .summary { color:var(--muted); }
+  .summary.err { color:var(--rose-ink); }
+  .summary .link { margin-left:12px; color:var(--ink); }
+  .overall { height:6px; background:var(--stone); margin:0 0 8px; }
+  .overall i { display:block; height:100%; width:0; background:var(--marigold); transition:width .4s; }
+  .rows { margin:0; padding:0; list-style:none; }
+  .row { display:grid; grid-template-columns:128px minmax(0,1fr) 150px 40px; gap:20px; align-items:center;
+         padding:12px 0; border-bottom:1px solid var(--rule); }
+  .row:hover { background:var(--row-hover); }
+  .row img { width:128px; height:72px; object-fit:cover; display:block; background:var(--stone); }
+  .row .t { font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .sub { display:flex; gap:14px; color:var(--muted); font-size:14px; line-height:20px; margin-top:2px; min-width:0; }
+  .row .sub span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .sub.err { color:var(--rose-ink); }
+  .row .track { height:6px; background:var(--butter); margin-top:10px; max-width:420px; }
+  .row .track i { display:block; height:100%; width:0; background:var(--marigold); transition:width .4s; }
+  .state { text-align:right; font-size:14px; line-height:20px; color:var(--muted); }
+  .state b { display:block; color:var(--ink); font-size:16px; line-height:22px; font-weight:500; }
+  .tag { display:inline-block; padding:2px 10px; font-size:14px; line-height:20px; font-weight:500; white-space:nowrap; }
+  .tag.done { background:var(--mint); color:var(--mint-ink); }
+  .tag.error { background:var(--rose); color:var(--rose-ink); }
+  .tag.skipped { background:var(--stone); color:var(--muted); }
+  .tag.going { background:var(--butter); color:var(--ink); }
+  .remove { width:40px; height:40px; border:none; background:none; cursor:pointer; color:var(--muted); display:grid; place-content:center; }
+  .remove:hover { color:var(--ink); background:var(--stone); }
+
+  /* Sky band: what's already in the folder */
+  .folder { padding:36px 0 44px; background:var(--sky) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='32'%3E%3Cpath d='M-24 22 L0 10 L24 22 L48 10 L72 22' fill='none' stroke='%239bbde0' stroke-width='1.4' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E"); }
+  .folder-head { display:flex; align-items:baseline; gap:16px; margin-bottom:12px; }
+  .folder-head .link { margin-left:auto; color:var(--sky-ink); }
+  .files { margin:0; padding:0; list-style:none; columns:2; column-gap:48px; }
+  .files li { break-inside:avoid; display:flex; justify-content:space-between; gap:16px; padding:10px 0;
+              border-bottom:1px solid var(--sky-rule); }
+  .files .n { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .files .s { color:var(--sky-ink); white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .files .new { background:var(--mint); color:var(--mint-ink); font-size:13px; font-weight:500; padding:0 6px; margin-right:8px; }
+  .files-empty { color:var(--sky-ink); margin:0; }
+
+  @media (max-width: 760px) {
+    .wrap { width:calc(100% - 32px); }
+    .brand { margin-bottom:24px; }
+    .brand span { display:none; }
+    h1 { font-size:26px; line-height:30px; }
+    .label-row { flex-wrap:wrap; gap:4px 16px; }
+    .detect { margin-left:0; width:100%; }
+    .controls { gap:16px; }
+    fieldset { width:100%; }
+    .choice label { flex:1 1 auto; justify-content:center; padding:0 8px; }
+    .dest { flex-wrap:wrap; height:auto; }
+    .go { margin-left:0; width:100%; }
+    .go .btn { flex:1; }
+    .row { grid-template-columns:96px minmax(0,1fr) 40px; gap:12px; }
+    .row img { width:96px; height:54px; }
+    .row .state { grid-column:2; text-align:left; }
+    .row .remove { grid-column:3; grid-row:1; }
+    .files { columns:1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition:none !important; animation-duration:2s !important; }
+  }
+</style>
+</head>
+<body>
+<section class="paste">
+  <div class="wrap">
+    <div class="brand"><b>Video Downloader</b><span>YouTube videos and playlists, saved to your Mac</span><span class="engine" id="engine"></span></div>
+    <div class="label-row">
+      <h1><label for="urls">Paste YouTube links</label></h1>
+      <span class="detect" id="detect" aria-live="polite"></span>
+    </div>
+    <textarea id="urls" placeholder="A video, several videos, or a playlist. Other text around the links is fine." autofocus></textarea>
+
+    <div class="controls">
+      <fieldset id="quality">
+        <legend>Quality</legend>
+        <div class="choice">
+          {% for q in qualities %}<label><input type="radio" name="quality" value="{{ q }}" {{ 'checked' if loop.first }}>{{ {'best': 'Best', 'audio': 'Audio only'}.get(q, q ~ 'p') }}</label>{% endfor %}
+        </div>
+      </fieldset>
+      <div class="field">
+        <span>Save to</span>
+        <div class="dest">
+          <span class="path" id="lastdir"></span>
+          <button class="link" id="change">Change</button>
+          <label class="check"><input type="checkbox" id="uselast"> Always here</label>
+        </div>
+      </div>
+      <div class="go">
+        <button class="btn primary" id="go" disabled>Download</button>
+        <button class="btn secondary" id="cancel" hidden>Cancel</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="queue" id="queue" hidden aria-labelledby="queue-h">
+  <div class="wrap">
+    <div class="queue-head">
+      <h2 id="queue-h">Queue</h2>
+      <span class="summary" id="summary"></span>
+    </div>
+    <div class="overall" id="overall" hidden><i id="overall-fill"></i></div>
+    <ul class="rows" id="list"></ul>
+  </div>
+</section>
+
+<section class="folder" aria-labelledby="folder-h">
+  <div class="wrap">
+    <div class="folder-head">
+      <h2 id="folder-h">In the folder</h2>
+      <button class="link" id="open" hidden>Show in Finder</button>
+    </div>
+    <ul class="files" id="files"></ul>
+    <p class="files-empty" id="files-empty" hidden></p>
+  </div>
+</section>
+
+<script>
+const settings = {{ settings|tojson }};
+const HOME = {{ home|tojson }};
+const $ = id => document.getElementById(id);
+const post = (path, body) => fetch(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}).then(r => r.json());
+const pad = n => String(n).padStart(2, '0');
+const clock = s => { s = Math.round(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`; };
+const length = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min` : s >= 60 ? `${Math.floor(s / 60)} min` : `${Math.round(s)} s`;
+const size = n => n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
+const tidy = p => p && p.startsWith(HOME) ? '~' + p.slice(HOME.length) : p;
+const base = p => (p || '').split('/').filter(Boolean).pop() || p;
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+const ACTIVE = ['starting', 'downloading', 'processing'];
+const TODO = ['ready', 'pending', ...ACTIVE];
+const quality = () => document.querySelector('input[name=quality]:checked').value;
+const QUALITY_NAME = {best: 'best quality', 1080: '1080p', 720: '720p', 480: '480p', audio: 'audio only (mp3)'};
+const X_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg>';
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+let items = [];            // detected videos, in order; each carries .state and .ui
+const removed = new Set(); // video ids the user removed
+const cache = {};          // link key → Promise of /api/info result
+let detecting = false, detectSeq = 0, detectTimer;
+let batch = null;          // {id, items, dest} while downloading
+let lastBatch = null;      // {id, dest} of the finished batch, for its summary
+let poll = null;
+let folder = {files: [], count: 0};
+let fresh = new Set();     // file names saved by the latest batch
+
+// ---- One place that decides what's enabled, visible and said -------------------
+function render() {
+  const busy = !!batch;
+  $('urls').disabled = $('quality').disabled = busy;
+  $('go').hidden = busy;
+  $('cancel').hidden = !busy;
+  $('go').disabled = detecting || !items.length;
+  $('go').textContent = items.length > 1 ? `Download ${items.length} videos` : 'Download';
+  $('uselast').disabled = busy || !settings.last_dir;
+  $('uselast').checked = !!(settings.use_last && settings.last_dir);
+  $('lastdir').textContent = settings.last_dir ? tidy(settings.last_dir) : 'Asks the first time';
+  $('lastdir').title = settings.last_dir || '';
+  $('change').textContent = settings.last_dir ? 'Change' : 'Choose';
+  $('change').disabled = busy;
+  $('queue').hidden = !items.length;
+  $('overall').hidden = !busy;
+  renderSummary();
+}
+
+function tally() {
+  const c = {todo: 0, done: 0, error: 0, skipped: 0};
+  for (const v of items) {
+    const s = v.state.status;
+    if (TODO.includes(s)) c.todo++; else if (s in c) c[s]++;
+  }
+  return c;
+}
+
+function renderSummary(text, cls = '') {
+  const f = $('summary');
+  f.className = 'summary ' + cls;
+  f.replaceChildren();
+  if (text != null) { f.textContent = text; return; }
+  const c = tally(), total = items.reduce((t, v) => t + (v.duration || 0), 0);
+  if (batch) {
+    const cur = items.find(v => ACTIVE.includes(v.state.status));
+    const n = Math.min(items.length - c.todo + 1, items.length);
+    const parts = [items.length > 1 ? `Downloading ${n} of ${items.length}` : 'Downloading'];
+    if (cur?.state.speed) parts.push(cur.state.speed);
+    f.textContent = parts.join(', ');
+    const done = items.reduce((t, v) => t + (['done', 'error', 'skipped'].includes(v.state.status) ? 100 : v.state.progress || 0), 0);
+    $('overall-fill').style.width = (done / items.length) + '%';
+  } else if (lastBatch) {
+    const parts = [`${c.done} of ${plural(items.length, 'video')} saved to ${base(lastBatch.dest)}`];
+    if (c.error) parts.push(`${c.error} failed`);
+    if (c.skipped) parts.push(`${c.skipped} skipped`);
+    f.append(parts.join(', '));
+    if (c.error && !c.done) f.className = 'summary err';
+    const show = el('button', 'link', 'Show in Finder');
+    show.onclick = () => post('/api/open-folder', {});
+    if (c.done) f.append(show);
+  } else {
+    f.textContent = `${plural(items.length, 'video')}, ${items.length === 1 ? clock(total) : length(total)} in total, ${QUALITY_NAME[quality()]}`;
+  }
+}
+
+// ---- Link parsing: every YouTube video/playlist link anywhere in the text --------
+function parseLinks(text) {
+  const found = [], seen = new Set();
+  for (const raw of text.match(/(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)\/\S+/gi) || []) {
+    let u;
+    try { u = new URL(/^https?:/i.test(raw) ? raw : 'https://' + raw); } catch { continue; }
+    let link = null;
+    const list = u.searchParams.get('list');
+    if (u.pathname === '/playlist' && list) {
+      link = {key: 'list:' + list, url: `https://www.youtube.com/playlist?list=${list}`};
+    } else {
+      const id = u.hostname.endsWith('youtu.be') ? u.pathname.slice(1, 12)
+        : u.pathname === '/watch' ? u.searchParams.get('v')
+        : (u.pathname.match(/^\/(?:shorts|live|embed)\/([\w-]{11})/) || [])[1];
+      if (/^[\w-]{11}$/.test(id || '')) link = {key: id, url: `https://www.youtube.com/watch?v=${id}`};
+    }
+    if (link && !seen.has(link.key)) { seen.add(link.key); found.push(link); }
+  }
+  return found;
+}
+
+function lookup(link) {
+  return cache[link.key] ??= post('/api/info', {url: link.url})
+    .catch(() => ({error: 'unreachable'}))
+    .then(r => { if (r.error) delete cache[link.key]; return r; });
+}
+
+function detectStatus(text = '', cls = '', spin = false) {
+  const m = $('detect');
+  m.textContent = text;
+  m.className = 'detect ' + cls;
+  if (spin) m.prepend(el('span', 'spinner'));
+}
+
+// ---- Detection: runs whenever the text changes -------------------------------------
+$('urls').addEventListener('input', () => {
+  clearTimeout(detectTimer);
+  detectTimer = setTimeout(detect, 250);
+});
+
+async function detect() {
+  const text = $('urls').value;
+  const links = parseLinks(text);
+  const seq = ++detectSeq;
+  lastBatch = null; fresh.clear(); renderFiles();
+  if (!text.trim()) removed.clear();
+  if (!links.length) {
+    detecting = false; items = []; buildList(); render();
+    return detectStatus(text.trim() ? 'No YouTube links in this text' : '', 'err');
+  }
+
+  detecting = true; render();
+  detectStatus(links.length > 1 ? `Looking up ${links.length} links` : 'Looking up the link', '', true);
+  const results = await Promise.all(links.map(lookup));
+  if (seq !== detectSeq) return;   // the text changed while we were waiting
+
+  const seen = new Set();
+  let failed = 0;
+  items = [];
+  for (const r of results) {
+    if (r.error) { failed++; continue; }
+    const videos = r.type === 'playlist' ? r.entries.map(e => ({...e, playlist: r.title})) : [r];
+    for (const v of videos) {
+      if (!seen.has(v.id) && !removed.has(v.id)) { seen.add(v.id); items.push({...v, state: {status: 'ready', progress: 0}}); }
+    }
+  }
+  detecting = false; buildList(); render();
+  if (failed) detectStatus(`${plural(failed, 'link')} couldn't be opened`, 'err');
+  else detectStatus(`Found ${plural(items.length, 'video')}`);
+}
+
+// ---- Queue rows -----------------------------------------------------------------
+function buildList() {
+  $('list').replaceChildren(...items.map((v, i) => {
+    const row = el('li', 'row');
+    const img = el('img'); img.src = v.thumbnail || ''; img.loading = 'lazy'; img.alt = '';
+    const info = el('div');
+    const meta = [v.uploader, v.duration ? clock(v.duration) : null, v.playlist && `from ${v.playlist}`].filter(Boolean);
+    const sub = el('div', 'sub');
+    const track = el('div', 'track'); const bar = el('i'); track.append(bar); track.hidden = true;
+    info.append(el('div', 't', v.title || v.url), sub, track);
+    const state = el('div', 'state');
+    const x = el('button', 'remove');
+    x.innerHTML = X_ICON;
+    x.onclick = () => batch ? skip(i) : remove(v.id);
+    row.append(img, info, state, x);
+    v.ui = {sub, meta, track, bar, state, x};
+    paintRow(v);
+    return row;
+  }));
+}
+
+function paintRow(v) {
+  const s = v.state, {sub, meta, track, bar, state, x} = v.ui;
+  const busy = !!batch;
+  state.replaceChildren();
+  if (s.status === 'pending') state.textContent = 'Waiting';
+  else if (s.status === 'starting') state.append(el('span', 'tag going', 'Starting'));
+  else if (s.status === 'downloading') state.append(el('b', null, `${s.progress.toFixed(1)}%`), s.speed || '');
+  else if (s.status === 'processing') state.append(el('span', 'tag going', quality() === 'audio' ? 'Making mp3' : 'Joining audio'));
+  else if (s.status === 'done') state.append(el('span', 'tag done', 'Saved'));
+  else if (s.status === 'error') state.append(el('span', 'tag error', 'Failed'));
+  else if (s.status === 'skipped') state.append(el('span', 'tag skipped', 'Skipped'));
+  track.hidden = !ACTIVE.includes(s.status);
+  bar.style.width = s.progress + '%';
+  sub.replaceChildren(...(s.error ? [el('span', null, s.error.replace(/^ERROR:\s*(\[[^\]]+\]\s*[\w-]+:\s*)?/, ''))] : meta.map(m => el('span', null, m))));
+  sub.className = 'sub' + (s.error ? ' err' : '');
+  x.hidden = busy ? !(s.status === 'pending' || ACTIVE.includes(s.status)) : false;
+  x.setAttribute('aria-label', busy ? `Skip ${v.title}` : `Remove ${v.title}`);
+  x.title = busy ? 'Skip this video' : 'Remove from the list';
+}
+
+function remove(id) {
+  removed.add(id);
+  items = items.filter(v => v.id !== id);
+  buildList(); render();
+  detectStatus(items.length ? `Found ${plural(items.length, 'video')}` : '');
+}
+
+// ---- The folder: what's already there --------------------------------------------
+async function loadFolder() {
+  folder = await fetch('/api/folder').then(r => r.json()).catch(() => ({files: [], count: 0}));
+  renderFiles();
+}
+
+function renderFiles() {
+  $('folder-h').textContent = settings.last_dir ? `In ${base(settings.last_dir)}` : 'In the folder';
+  $('open').hidden = !folder.exists;
+  $('files').replaceChildren(...folder.files.map(f => {
+    const li = el('li');
+    const n = el('span', 'n');
+    if (fresh.has(f.name)) n.append(el('span', 'new', 'New'));
+    n.append(f.name);
+    li.append(n, el('span', 's', size(f.size)));
+    return li;
+  }));
+  const e = $('files-empty');
+  e.hidden = folder.files.length > 0;
+  e.textContent = !settings.last_dir ? 'No folder chosen yet. The first download asks where to save.'
+    : !folder.exists ? 'This folder no longer exists. Choose another one above.'
+    : 'Nothing here yet. Saved videos will appear in this list.';
+  if (folder.count > folder.files.length) {
+    const li = el('li'); li.append(el('span', 'n', `and ${folder.count - folder.files.length} more`)); $('files').append(li);
+  }
+}
+$('open').addEventListener('click', () => post('/api/open-folder', {}));
+
+// ---- Destination ----------------------------------------------------------------
+async function chooseFolder() {
+  const r = await post('/api/choose-folder', {start: settings.last_dir});
+  if (r.path) { settings.last_dir = r.path; loadFolder(); }
+  render();
+  return r.path;
+}
+
+$('change').addEventListener('click', chooseFolder);
+$('uselast').addEventListener('change', () => {
+  settings.use_last = $('uselast').checked;
+  post('/api/settings', {use_last: settings.use_last});
+});
+$('quality').addEventListener('change', () => renderSummary());
+
+// ---- Download: only starts on the button --------------------------------------
+$('go').addEventListener('click', async () => {
+  if (!items.length || batch || detecting) return;
+  let dest = settings.use_last && settings.last_dir;
+  if (!dest) {
+    detectStatus('Choose where to save…');
+    dest = await chooseFolder();
+    detectStatus(`Found ${plural(items.length, 'video')}`);
+    if (!dest) return;
+  }
+  const snapshot = items.slice();
+  const r = await post('/api/batches', {dest, quality: quality(), items: snapshot.map(v => ({url: v.url}))});
+  if (r.error) return detectStatus(r.error, 'err');
+  batch = {id: r.id, items: snapshot, dest};
+  lastBatch = null; fresh.clear();
+  for (const v of items) { v.state = {status: 'pending', progress: 0}; paintRow(v); }
+  $('overall-fill').style.width = '0';
+  render();
+  poll = setInterval(check, 500);
+});
+
+async function check() {
+  const b = batch;
+  const res = b && await fetch(`/api/batches/${b.id}`).then(r => r.ok ? r.json() : null).catch(() => null);
+  if (!res || b !== batch) return;   // cancelled meanwhile
+  let landed = false;
+  res.items.forEach((s, i) => {
+    const v = b.items[i];
+    if (v.state.status === 'skipped' && s.status !== 'skipped' && !['done', 'error'].includes(s.status)) return;
+    if (s.status === 'done' && v.state.status !== 'done') landed = true;
+    v.state = {status: s.status, progress: s.progress || 0, speed: s.speed, error: s.error, path: s.path};
+    paintRow(v);
+  });
+  // Each saved video shows up in the folder list as it lands, not only at the end.
+  fresh = new Set(b.items.filter(v => v.state.path).map(v => v.state.path.split('/').pop()));
+  if (landed) loadFolder();
+  if (res.status !== 'done') return renderSummary();
+
+  clearInterval(poll); poll = batch = null;
+  lastBatch = {id: b.id, dest: b.dest};
+  render(); loadFolder();
+}
+
+function skip(i) {
+  const b = batch;
+  if (!b) return;
+  const v = b.items[i];
+  v.state = {status: 'skipped', progress: 0};
+  paintRow(v); renderSummary();
+  post(`/api/batches/${b.id}/items/${i}/skip`, {});
+}
+
+// ---- Cancel: stop, delete everything this batch made, back to before -------------
+$('cancel').addEventListener('click', async () => {
+  const b = batch;
+  if (!b) return;
+  clearInterval(poll); poll = batch = null;
+  renderSummary('Cancelling…');
+  await post(`/api/batches/${b.id}/cancel`, {}).catch(() => {});
+  fresh.clear();
+  for (const v of items) { v.state = {status: 'ready', progress: 0}; paintRow(v); }
+  render(); loadFolder();
+});
+
+// ---- The yt-dlp version in use, kept current by the server ------------------------
+const ago = t => {
+  const d = Date.now() / 1000 - t;
+  return d < 90 ? 'just now' : d < 3600 ? `${Math.round(d / 60)} min ago` : d < 86400 ? `${Math.round(d / 3600)} h ago` : `${Math.round(d / 86400)} days ago`;
+};
+async function loadEngine() {
+  const e = await fetch('/api/engine').then(r => r.json()).catch(() => null);
+  if (!e) return;
+  const v = e.version ? `yt-dlp ${e.version}` : 'yt-dlp';
+  $('engine').textContent = e.status === 'updating' ? 'Updating yt-dlp…'
+    : e.status === 'error' ? `${v}, couldn't check for updates`
+    : e.checked ? `${v}, up to date as of ${ago(e.checked)}` : v;
+  $('engine').title = e.error || '';
+}
+
+render();
+loadFolder();
+loadEngine();
+setInterval(loadEngine, 30000);
+</script>
+</body>
+</html>
