@@ -10,6 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$PWD"
 DENO_VERSION=2.9.0
+VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml)   # the app's version comes from pyproject.toml
 APP="dist/Video Downloader.app"
 
 [ "$(uname -m)" = arm64 ] || { echo "This builds for Apple Silicon; run it on an Apple Silicon Mac."; exit 1; }
@@ -65,7 +66,7 @@ arch -arm64 uv run --group build pyinstaller --noconfirm --clean --windowed --lo
 # PyInstaller's imageio_ffmpeg hook would carry the GPL ffmpeg binary along; take it out.
 find "$APP" -path "*imageio_ffmpeg/binaries/ffmpeg*" -exec rm -f {} +
 if find "$APP" -iname "ffmpeg*" -type f | grep -q .; then echo "An ffmpeg binary is still inside the app"; exit 1; fi
-plutil -replace CFBundleShortVersionString -string "1.0" "$APP/Contents/Info.plist"
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace LSMinimumSystemVersion -string "12.0" "$APP/Contents/Info.plist"
 codesign --force --deep --sign - "$APP" 2>/dev/null   # ad-hoc signature, required on Apple Silicon
 echo "Built: $APP ($(du -sh "$APP" | cut -f1))"
