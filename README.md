@@ -17,7 +17,7 @@ the widely used open-source downloader.
 - **One screen.** Paste, pick a quality, download. Nothing to configure.
 - **It keeps working.** YouTube changes often; the app keeps yt-dlp current by itself, and
   every update is checksum-verified and test-loaded before it's used.
-- **Nothing hidden.** No accounts, no tracking, no analytics, and about 1,600 lines of code
+- **Nothing hidden.** No accounts, no tracking, no analytics, and about 1,800 lines of code
   you can read. Below is every service it talks to and why.
 - **Cancel means cancel.** Stopping a download removes everything it created; your folder is
   left exactly as it was.
@@ -26,7 +26,11 @@ the widely used open-source downloader.
 
 - Paste any text that contains YouTube links: one video, several, or a playlist. Links are
   found automatically, playlists expand into their videos, and duplicates are dropped.
-- Choose Best, 1080p, 720p, 480p or Audio only (mp3).
+- Choose Best, 1080p, 720p, 480p, Audio only (mp3) or GIF.
+- **Trim** any video to save just part of it: type a start and end like `1:23` and `2:10`.
+  The cut is exact, and the file name says which part it is (`… 1m23s-2m10s.mp4`).
+- **GIF** makes an animated GIF up to 480 px wide, from a whole short video or any clip of
+  60 seconds or less.
 - Pick a folder once, or tick **Always here** to skip the question next time.
 - Videos download one at a time with live progress. The x on a row skips that video.
 - **Cancel** stops everything and deletes every file that download created, so your folder is
@@ -55,7 +59,7 @@ and only used if that works. If anything fails (for example, you're offline), th
 version it has. The current version shows in the top right of the window. See
 [`engine.py`](engine.py).
 
-The whole app is about 1,600 lines of Python, HTML and shell in this repository, so you can
+The whole app is about 1,800 lines of Python, HTML and shell in this repository, so you can
 read exactly what it does.
 
 ## Install
@@ -104,7 +108,7 @@ everything inside are in `Video Downloader.app/Contents/Resources/licenses`, gat
 ```bash
 uv run desktop.py    # the app window, straight from the source
 uv run app.py        # the same page in your browser at http://127.0.0.1:5050
-uv run downloader.py URL [URL ...] [-q best|1080|720|480|audio] [-o DIR]   # command line
+uv run downloader.py URL [URL ...] [-q best|1080|720|480|audio|gif] [-o DIR] [--start 1:23] [--end 2:10]
 ```
 
 Running from source needs Deno on your PATH (`brew install deno`).
@@ -125,6 +129,10 @@ Each video downloads in its own process inside a private temporary folder, so sk
 can stop it (with its ffmpeg) at once and delete every partial file. Finished videos are moved
 into your folder. Link lookups also run in fresh processes, which is how a yt-dlp update takes
 effect without restarting the app.
+
+A clip comes whichever way is faster: when the whole file is small enough, it's downloaded at
+full speed and cut on your Mac in about a second; for big or high-resolution videos, ffmpeg
+fetches only the clip from YouTube. Either way the cut lands on the exact times you typed.
 
 ## Please download responsibly
 

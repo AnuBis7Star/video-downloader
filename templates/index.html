@@ -105,6 +105,16 @@
   .row .sub.err { color:var(--rose-ink); }
   .row .track { height:6px; background:var(--butter); margin-top:10px; max-width:420px; }
   .row .track i { display:block; height:100%; width:0; background:var(--marigold); transition:width .4s; }
+  .trim:empty { display:none; }
+  .trim { display:flex; align-items:center; gap:8px 12px; flex-wrap:wrap; margin-top:6px; font-size:14px; line-height:20px; }
+  .trim .link { color:var(--ink); }
+  .trim .clip { color:var(--ink); font-weight:500; }
+  .trim label { display:flex; align-items:center; gap:6px; color:var(--muted); }
+  .trim input { width:84px; height:32px; padding:0 8px; border:1px solid var(--rule); border-radius:0; background:var(--field);
+                font-variant-numeric:tabular-nums; }
+  .trim input:focus-visible { outline:2px solid var(--ink); outline-offset:0; }
+  .trim input[aria-invalid=true] { border-color:var(--rose-ink); }
+  .trim .bad { color:var(--rose-ink); flex-basis:100%; }
   .state { text-align:right; font-size:14px; line-height:20px; color:var(--muted); }
   .state b { display:block; color:var(--ink); font-size:16px; line-height:22px; font-weight:500; }
   .tag { display:inline-block; padding:2px 10px; font-size:14px; line-height:20px; font-weight:500; white-space:nowrap; }
@@ -165,7 +175,7 @@
       <fieldset id="quality">
         <legend>Quality</legend>
         <div class="choice">
-          {% for q in qualities %}<label><input type="radio" name="quality" value="{{ q }}" {{ 'checked' if loop.first }}>{{ {'best': 'Best', 'audio': 'Audio only'}.get(q, q ~ 'p') }}</label>{% endfor %}
+          {% for q in qualities %}<label><input type="radio" name="quality" value="{{ q }}" {{ 'checked' if loop.first }}>{{ {'best': 'Best', 'audio': 'Audio only', 'gif': 'GIF'}.get(q, q ~ 'p') }}</label>{% endfor %}
         </div>
       </fieldset>
       <div class="field">
@@ -218,10 +228,21 @@ const size = n => n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n >= 1e6 ? (n / 1e6)
 const tidy = p => p && p.startsWith(HOME) ? '~' + p.slice(HOME.length) : p;
 const base = p => (p || '').split('/').filter(Boolean).pop() || p;
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
-const ACTIVE = ['starting', 'downloading', 'processing'];
+const ACTIVE = ['starting', 'downloading', 'cutting', 'processing'];
+const GIF_MAX = 60;
+// '83', '1:23', '1:02:03', '1:23.5' → seconds; blank → null; anything else → NaN
+function parseTime(text) {
+  text = (text || '').trim();
+  if (!text) return null;
+  const parts = text.split(':');
+  if (parts.length > 3 || !parts.every(p => /^\d+(\.\d+)?$/.test(p))) return NaN;
+  const nums = parts.map(Number);
+  if (nums.slice(1).some(n => n >= 60)) return NaN;
+  return nums.reduce((t, n) => t * 60 + n, 0);
+}
 const TODO = ['ready', 'pending', ...ACTIVE];
 const quality = () => document.querySelector('input[name=quality]:checked').value;
-const QUALITY_NAME = {best: 'best quality', 1080: '1080p', 720: '720p', 480: '480p', audio: 'audio only (mp3)'};
+const QUALITY_NAME = {best: 'best quality', 1080: '1080p', 720: '720p', 480: '480p', audio: 'audio only (mp3)', gif: 'GIF, 480 px wide'};
 const X_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" aria-hidden="true"><path d="M3 3l8 8M11 3l-8 8"/></svg>';
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -230,8 +251,29 @@ function el(tag, cls, text) {
   return e;
 }
 
+// The part of a video to save: {start, end} in seconds (null = from the beginning / to the
+// end), its length, and what's wrong with it, if anything. Mirrors downloader.clip_error.
+function clipOf(v) {
+  const t = trims[v.id] || {}, d = v.duration || null;
+  let start = parseTime(t.start), end = parseTime(t.end), error = null;
+  if (Number.isNaN(start)) error = 'Start isn\'t a time. Use 1:23 or 83';
+  else if (Number.isNaN(end)) error = 'End isn\'t a time. Use 2:10 or 130';
+  else {
+    if (start === 0) start = null;
+    if (d && start != null && start >= d) error = 'Start is past the end of the video';
+    else if (d && end != null && end > d + 1) error = `End is past the end of the video (${clock(d)})`;
+    else if (end != null && end <= (start || 0)) error = 'End must come after start';
+    if (d && end != null && end >= d) end = null;
+  }
+  const length = (end ?? d ?? Infinity) - (start || 0);
+  if (!error && quality() === 'gif' && length > GIF_MAX)
+    error = `Too long for a GIF: set a start and end, ${GIF_MAX} s at most`;
+  return {start, end, length, error, set: start != null || end != null};
+}
+
 let items = [];            // detected videos, in order; each carries .state and .ui
 const removed = new Set(); // video ids the user removed
+const trims = {};          // video id → {start, end, open}: the typed text, kept across re-detection
 const cache = {};          // link key → Promise of /api/info result
 let detecting = false, detectSeq = 0, detectTimer;
 let batch = null;          // {id, items, dest} while downloading
@@ -246,7 +288,7 @@ function render() {
   $('urls').disabled = $('quality').disabled = busy;
   $('go').hidden = busy;
   $('cancel').hidden = !busy;
-  $('go').disabled = detecting || !items.length;
+  $('go').disabled = detecting || !items.length || items.some(v => clipOf(v).error);
   $('go').textContent = items.length > 1 ? `Download ${items.length} videos` : 'Download';
   $('uselast').disabled = busy || !settings.last_dir;
   $('uselast').checked = !!(settings.use_last && settings.last_dir);
@@ -273,7 +315,7 @@ function renderSummary(text, cls = '') {
   f.className = 'summary ' + cls;
   f.replaceChildren();
   if (text != null) { f.textContent = text; return; }
-  const c = tally(), total = items.reduce((t, v) => t + (v.duration || 0), 0);
+  const c = tally();
   if (batch) {
     const cur = items.find(v => ACTIVE.includes(v.state.status));
     const n = Math.min(items.length - c.todo + 1, items.length);
@@ -292,7 +334,14 @@ function renderSummary(text, cls = '') {
     show.onclick = () => post('/api/open-folder', {});
     if (c.done) f.append(show);
   } else {
-    f.textContent = `${plural(items.length, 'video')}, ${items.length === 1 ? clock(total) : length(total)} in total, ${QUALITY_NAME[quality()]}`;
+    const bad = items.filter(v => clipOf(v).error).length;
+    if (bad) {
+      f.textContent = `${bad === items.length && bad === 1 ? 'This video needs' : plural(bad, 'video') + (bad === 1 ? ' needs' : ' need')} new clip times`;
+      f.className = 'summary err';
+      return;
+    }
+    const clipped = items.reduce((t, v) => t + (clipOf(v).set ? clipOf(v).length : v.duration || 0), 0);
+    f.textContent = `${plural(items.length, 'video')}, ${items.length === 1 ? clock(clipped) : length(clipped)} in total, ${QUALITY_NAME[quality()]}`;
   }
 }
 
@@ -376,13 +425,14 @@ function buildList() {
     const meta = [v.uploader, v.duration ? clock(v.duration) : null, v.playlist && `from ${v.playlist}`].filter(Boolean);
     const sub = el('div', 'sub');
     const track = el('div', 'track'); const bar = el('i'); track.append(bar); track.hidden = true;
-    info.append(el('div', 't', v.title || v.url), sub, track);
+    const trim = el('div', 'trim');
+    info.append(el('div', 't', v.title || v.url), sub, trim, track);
     const state = el('div', 'state');
     const x = el('button', 'remove');
     x.innerHTML = X_ICON;
     x.onclick = () => batch ? skip(i) : remove(v.id);
     row.append(img, info, state, x);
-    v.ui = {sub, meta, track, bar, state, x};
+    v.ui = {sub, meta, track, bar, state, x, trim};
     paintRow(v);
     return row;
   }));
@@ -395,7 +445,9 @@ function paintRow(v) {
   if (s.status === 'pending') state.textContent = 'Waiting';
   else if (s.status === 'starting') state.append(el('span', 'tag going', 'Starting'));
   else if (s.status === 'downloading') state.append(el('b', null, `${s.progress.toFixed(1)}%`), s.speed || '');
-  else if (s.status === 'processing') state.append(el('span', 'tag going', quality() === 'audio' ? 'Making mp3' : 'Joining audio'));
+  else if (s.status === 'cutting') state.append(el('span', 'tag going', 'Cutting clip'), el('div', 'num', clock((Date.now() - (v.cutSince || Date.now())) / 1000)));
+  else if (s.status === 'processing') state.append(el('span', 'tag going',
+    {audio: 'Making mp3', gif: 'Making GIF'}[batch?.quality ?? quality()] || 'Joining audio'));
   else if (s.status === 'done') state.append(el('span', 'tag done', 'Saved'));
   else if (s.status === 'error') state.append(el('span', 'tag error', 'Failed'));
   else if (s.status === 'skipped') state.append(el('span', 'tag skipped', 'Skipped'));
@@ -406,6 +458,47 @@ function paintRow(v) {
   x.hidden = busy ? !(s.status === 'pending' || ACTIVE.includes(s.status)) : false;
   x.setAttribute('aria-label', busy ? `Skip ${v.title}` : `Remove ${v.title}`);
   x.title = busy ? 'Skip this video' : 'Remove from the list';
+  paintTrim(v);
+}
+
+// "Trim" under each title: start and end boxes, or the clip once it's set.
+function paintTrim(v) {
+  const box = v.ui.trim, t = trims[v.id] ||= {start: '', end: '', open: false};
+  const c = clipOf(v), busy = !!batch;
+  const span = `${c.start != null ? clock(c.start) : '0:00'} → ${c.end != null ? clock(c.end) : v.duration ? clock(v.duration) : 'end'}`;
+  const len = Number.isFinite(c.length) ? ` (${clock(c.length)})` : '';
+  if (busy || !t.open) {
+    box.replaceChildren();
+    if (c.set) box.append(el('span', 'clip', `Clip ${span}${len}`));
+    if (!busy) {
+      const b = el('button', 'link', c.set ? 'Change' : 'Trim');
+      b.onclick = () => { t.open = true; paintTrim(v); box.querySelector('input').focus(); };
+      box.append(b);
+    }
+    if (!busy && c.error) box.append(el('span', 'bad', c.error));
+    return;
+  }
+  if (!box.querySelector('input')) {   // build once, so typing keeps focus
+    const field = (key, name, hint) => {
+      const l = el('label', null, name), i = el('input');
+      i.value = t[key]; i.placeholder = hint; i.inputMode = 'decimal'; i.autocomplete = 'off';
+      i.setAttribute('aria-label', `${name} of ${v.title}`);
+      i.oninput = () => { t[key] = i.value; paintTrim(v); render(); };
+      l.append(i);
+      return l;
+    };
+    const done = el('button', 'link', 'Done');
+    done.onclick = () => { t.open = false; paintTrim(v); };
+    const clear = el('button', 'link', 'Whole video');
+    clear.onclick = () => { trims[v.id] = {start: '', end: '', open: false}; paintTrim(v); render(); };
+    box.replaceChildren(field('start', 'Start', '0:00'), field('end', 'End', v.duration ? clock(v.duration) : 'end'),
+                        el('span', 'clip'), done, clear, el('span', 'bad'));
+  }
+  const [si, ei] = box.querySelectorAll('input');
+  si.setAttribute('aria-invalid', /Start/.test(c.error || ''));
+  ei.setAttribute('aria-invalid', /End|GIF/.test(c.error || ''));
+  box.querySelector('.clip').textContent = c.error ? '' : c.set ? `${clock(c.length)} clip` : '';
+  box.querySelector('.bad').textContent = c.error || '';
 }
 
 function remove(id) {
@@ -456,7 +549,7 @@ $('uselast').addEventListener('change', () => {
   settings.use_last = $('uselast').checked;
   post('/api/settings', {use_last: settings.use_last});
 });
-$('quality').addEventListener('change', () => renderSummary());
+$('quality').addEventListener('change', () => { items.forEach(paintTrim); render(); });
 
 // ---- Download: only starts on the button --------------------------------------
 $('go').addEventListener('click', async () => {
@@ -469,9 +562,10 @@ $('go').addEventListener('click', async () => {
     if (!dest) return;
   }
   const snapshot = items.slice();
-  const r = await post('/api/batches', {dest, quality: quality(), items: snapshot.map(v => ({url: v.url}))});
+  const body = snapshot.map(v => { const c = clipOf(v); return {url: v.url, duration: v.duration, start: c.start, end: c.end}; });
+  const r = await post('/api/batches', {dest, quality: quality(), items: body});
   if (r.error) return detectStatus(r.error, 'err');
-  batch = {id: r.id, items: snapshot, dest};
+  batch = {id: r.id, items: snapshot, dest, quality: quality()};
   lastBatch = null; fresh.clear();
   for (const v of items) { v.state = {status: 'pending', progress: 0}; paintRow(v); }
   $('overall-fill').style.width = '0';
@@ -488,6 +582,7 @@ async function check() {
     const v = b.items[i];
     if (v.state.status === 'skipped' && s.status !== 'skipped' && !['done', 'error'].includes(s.status)) return;
     if (s.status === 'done' && v.state.status !== 'done') landed = true;
+    if (s.status === 'cutting' && v.state.status !== 'cutting') v.cutSince = Date.now();  // no % while ffmpeg cuts: show time spent
     v.state = {status: s.status, progress: s.progress || 0, speed: s.speed, error: s.error, path: s.path};
     paintRow(v);
   });
@@ -498,6 +593,7 @@ async function check() {
 
   clearInterval(poll); poll = batch = null;
   lastBatch = {id: b.id, dest: b.dest};
+  items.forEach(paintRow);   // trim links come back
   render(); loadFolder();
 }
 

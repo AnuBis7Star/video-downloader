@@ -25,15 +25,15 @@ from typing import Callable
 from flask import Flask, abort, jsonify, render_template, request
 
 import engine
-from downloader import QUALITIES, download, get_info
+from downloader import QUALITIES, clip_error, download, get_info
 
 app = Flask(__name__, template_folder=str(engine.RESOURCES / "templates"))
 batches: dict[str, dict] = {}
 STAGING = Path(tempfile.gettempdir()) / "video_downloader"
 SETTINGS = Path.home() / ".video_downloader.json"
-ACTIVE = ("starting", "downloading", "processing")
+ACTIVE = ("starting", "downloading", "cutting", "processing")
 ITEM_FIELDS = ("status", "progress", "speed", "error", "path")
-MEDIA = {".mp4", ".mp3", ".webm", ".mkv", ".m4a", ".mov"}
+MEDIA = {".mp4", ".mp3", ".webm", ".mkv", ".m4a", ".mov", ".gif"}
 
 
 def load_settings() -> dict:
@@ -49,11 +49,13 @@ def save_settings(**changes) -> dict:
     return settings
 
 
-def _worker(url: str, quality: str, out_dir: str, q: mp.Queue) -> None:
+def _worker(url: str, quality: str, out_dir: str, q: mp.Queue, start: float | None,
+            end: float | None) -> None:
     os.setsid()  # own process group, so cancel also takes down ffmpeg/deno
     try:
         path = download(url, quality, Path(out_dir),
-                        lambda stage, pct, speed: q.put(("progress", stage, pct, speed)))
+                        lambda stage, pct, speed: q.put(("progress", stage, pct, speed)),
+                        start, end)
         q.put(("done", str(path)))
     except Exception as e:
         q.put(("error", str(e)))
@@ -87,8 +89,8 @@ def _run_item(batch: dict, item: dict) -> None:
         return
     item_dir = STAGING / batch["id"] / item["id"]
     q = mp.Queue()
-    proc = mp.Process(target=_worker, args=(item["url"], batch["quality"], str(item_dir), q),
-                      daemon=True)
+    proc = mp.Process(target=_worker, daemon=True,
+                      args=(item["url"], batch["quality"], str(item_dir), q, item["start"], item["end"]))
     with batch["lock"]:
         if item["status"] != "pending":  # skipped before it started
             return
@@ -243,12 +245,24 @@ def start_batch():
     dest = Path(body["dest"]).expanduser()
     if not dest.is_dir():
         return jsonify(error=f"Folder not found: {dest}"), 400
+    quality = body.get("quality", "best")
+    if quality not in QUALITIES:
+        return jsonify(error=f"Unknown quality: {quality}"), 400
+    items = []
+    for i, it in enumerate(body["items"]):
+        try:  # seconds, or missing for "from the beginning" / "to the end"
+            start, end = (None if it.get(k) is None else float(it[k]) for k in ("start", "end"))
+        except (TypeError, ValueError):
+            return jsonify(error="Start and end must be numbers of seconds"), 400
+        start = start if start and start > 0 else None
+        problem = clip_error(it.get("duration"), start, end, quality)
+        if problem:
+            return jsonify(error=problem, index=i), 400
+        items.append({"id": str(i), "url": it["url"], "start": start, "end": end,
+                      "status": "pending", "progress": 0, "speed": "", "error": None, "path": None})
     batch = {
-        "id": uuid.uuid4().hex, "dest": dest, "quality": body.get("quality", "best"),
-        "status": "running", "lock": threading.Lock(),
-        "items": [{"id": str(i), "url": it["url"], "status": "pending", "progress": 0,
-                   "speed": "", "error": None, "path": None}
-                  for i, it in enumerate(body["items"])],
+        "id": uuid.uuid4().hex, "dest": dest, "quality": quality,
+        "status": "running", "lock": threading.Lock(), "items": items,
     }
     batches[batch["id"]] = batch
     save_settings(last_dir=str(dest))
